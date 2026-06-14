@@ -1,0 +1,492 @@
+<!DOCTYPE html>
+<html lang="vi">
+<!--
+#thẻ head chưa thông số cấu hình hệ thống
+-->
+<head>
+    <!-- thêm lớp áo bằng link cho bàn cờ-->
+    <meta charset="UTF-8">
+    <title>Game cờ vua của tôi</title>
+    <link rel="stylesheet" href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css">
+    <style>
+        /* --- HỆ THỐNG MÀN HÌNH --- */
+        .screen {
+            display: none; /* Mặc định ẩn tất cả */
+            width: 100%;
+            max-width: 600px;
+            text-align: center;
+        }
+        .screen.active {
+            display: block; /* Chỉ hiện màn hình nào có class 'active' */
+        }
+
+        /* --- MÀN HÌNH LOBBY (Sảnh chờ) --- */
+        .lobby-box {
+            background: white; padding: 30px; border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+            display: flex; flex-direction: column; gap: 15px;
+        }
+        .lobby-input {
+            padding: 12px; font-size: 16px; border: 1px solid #ccc; border-radius: 6px;
+        }
+        .btn-start {
+            background: #28a745; color: white; border: none; padding: 15px;
+            font-size: 18px; font-weight: bold; border-radius: 6px; cursor: pointer;
+            transition: 0.2s;
+        }
+        .btn-start:hover { background: #218838; transform: scale(1.02); }
+
+        /* --- MÀN HÌNH WAITING (Đang chờ) --- */
+        .waiting-text { font-size: 24px; font-weight: bold; color: #555; }
+        .dots span {
+            animation: bounce 1.4s infinite ease-in-out both;
+            display: inline-block; font-size: 30px;
+        }
+        .dots span:nth-child(1) { animation-delay: -0.32s; }
+        .dots span:nth-child(2) { animation-delay: -0.16s; }
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        /* --- KHU VỰC THÔNG TIN NGƯỜI CHƠI (Bàn cờ) --- */
+        .player-profile {
+            display: flex; align-items: center; gap: 10px; padding: 10px;
+            background: white; border-radius: 8px; font-weight: bold; font-size: 18px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin: 10px 0;
+        }
+        .avatar-lg { font-size: 35px; }
+        .align-left { justify-content: flex-start; } /* Thông tin đối thủ (Góc trên trái) */
+        .align-right { justify-content: flex-end; }  /* Thông tin mình (Góc dưới phải) */
+        body {
+            display: flex; /* Bật chế độ Flexbox */
+            flex-direction: column; /* Xếp các thành phần theo chiều dọc */
+            align-items: center; /* Đưa tất cả vào chính giữa theo chiều ngang */
+            background-color: #f4f6f8; /* Thêm màu nền xám nhạt cho mắt đỡ mỏi */
+            font-family: Arial, sans-serif;
+            margin-top: 20px;
+        }
+
+        /* Làm đẹp thêm cho cái khu vực chứa bàn cờ */
+        #board {
+            box-shadow: 0px 10px 30px rgba(0, 0, 0, 0.2); /* Thêm bóng đổ 3D cho bàn cờ ngầu hơn */
+            border-radius: 4px;
+        }
+        /* Trang trí cho hộp thoại phong cấp */
+        #promotion-dialog {
+            display: none; /* Mặc định ẩn */
+            position: absolute;
+            top: 50%; left: 50%; transform: translate(-50%, -50%); /* Căn giữa màn hình */
+            background: #f3f3f3;
+            border-radius: 5px;
+            box-shadow: 0px 4px 15px rgba(0,0,0,0.4);
+            z-index: 1000;
+            flex-direction: column; /* Xếp các quân cờ theo chiều dọc */
+            padding: 5px;
+            gap: 5px;
+        }
+        /* Trang trí từng quân cờ trong hộp thoại */
+        .promo-piece {
+            width: 60px;
+            height: 60px;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: background 0.2s; /* Hiệu ứng chuyển màu mượt */
+        }
+        .promo-piece:hover {
+            background: #dcdcdc; /* Đổi màu xám nhẹ khi di chuột vào */
+        }
+    </style>
+</head>
+<!---
+#body là không gian hiển thị thực tế mà người chơi sẽ tương tác
+#để xuất độ họa ra màn hình, chúng ta cần cấp cho nó một tọa độ không gian cụ thể
+-->
+<body>
+    <div id="screen-lobby" class="screen active">
+        <h1 style="color: #333;">🎮 Cờ Vua Online</h1>
+        <div class="lobby-box">
+            <input type="text" id="playerName" class="lobby-input" placeholder="Nhập tên của bạn...">
+            
+            <select id="playerAvatar" class="lobby-input">
+                <option value="👨‍💻">👨‍💻 Lập trình viên</option>
+                <option value="🤖">🤖 Robot</option>
+                <option value="🐱">🐱 Mèo ngầu</option>
+                <option value="👽">👽 Người ngoài hành tinh</option>
+                <option value="😎">😎 Dân chơi</option>
+            </select>
+
+            <select id="playerColor" class="lobby-input">
+                <option value="w">⚪ Cầm quân Trắng (Đi trước)</option>
+                <option value="b">⚫ Cầm quân Đen (Đi sau)</option>
+            </select>
+
+            <input type="text" id="roomId" class="lobby-input" placeholder="Nhập mã phòng (VD: 123)">
+            
+            <button class="btn-start" onclick="onJoinClick()">TÌM ĐỐI THỦ</button>
+            <span id="server-status" style="color: red; font-size: 14px;">Đang kết nối máy chủ...</span>
+        </div>
+    </div>
+
+    <div id="screen-waiting" class="screen">
+        <div class="lobby-box" style="margin-top: 50px;">
+            <div class="avatar-lg" id="waiting-avatar">👨‍💻</div>
+            <div class="waiting-text" id="waiting-name">Tên của bạn</div>
+            <p style="color: #666;">Đang chờ người chơi khác vào phòng <span id="waiting-room" style="font-weight:bold;"></span></p>
+            <div class="dots">
+                <span>🔴</span><span>🟡</span><span>🟢</span>
+            </div>
+        </div>
+    </div>
+
+    <div id="screen-game" class="screen">
+        <div class="player-profile align-left" id="opponent-profile" style="visibility: hidden;">
+            <div class="avatar-lg" id="opponent-avatar">❓</div>
+            <div id="opponent-name">Đang tải...</div>
+        </div>
+
+        <div id="board" style="width: 600px; margin: 0 auto;"></div>
+
+        <div class="player-profile align-right" id="my-profile">
+            <button onclick="showSurrenderDialog()" style="margin-right: 15px; padding: 8px 15px; font-weight: bold; background: #dc3545; color: white; border: none; border-radius: 5px; cursor: pointer;">🏳️ Đầu hàng</button>
+            <div id="my-name">Tên của mình</div>
+            <div class="avatar-lg" id="my-avatar">👨‍💻</div>
+        </div>
+    </div>
+    <div id="scoreboard" style="display: none; position: fixed; left: 30px; top: 50%; transform: translateY(-50%); background: white; padding: 20px; border-radius: 10px; box-shadow: 0 4px 15px rgba(0,0,0,0.2); text-align: center;">
+            <h3 style="margin: 0 0 10px 0; color: #333;">TỈ SỐ</h3>
+            <div style="font-size: 28px; font-weight: bold; color: #d9534f;">
+                <span id="score-me">0</span> - <span id="score-opp">0</span>
+            </div>
+            <div style="font-size: 14px; color: #666; margin-top: 5px;">(Bạn - Đối thủ)</div>
+    </div>
+    <div id="board" style="width: 550px"></div>
+    <div id="promotion-dialog">
+        <img id="promo-q" src="" class="promo-piece" onclick="choosePromotion('q')" title="Hậu">
+        <img id="promo-n" src="" class="promo-piece" onclick="choosePromotion('n')" title="Mã">
+        <img id="promo-r" src="" class="promo-piece" onclick="choosePromotion('r')" title="Xe">
+        <img id="promo-b" src="" class="promo-piece" onclick="choosePromotion('b')" title="Tượng">
+    </div>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/7.0.5/signalr.min.js"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    <script>
+        // Khởi tạo bộ não trung tâm để quản lý luật chơi
+        var game = new Chess();
+        // --- BIẾN TOÀN CỤC ---
+        var roomName = ""; 
+        var myColor = 'w'; 
+        var myName = "";
+        var myAvatar = "";
+        var myScore = 0;
+        var oppScore = 0;
+
+        // --- HÀM CHUYỂN MÀN HÌNH ---
+        // --- HÀM CHUYỂN MÀN HÌNH (Đã nâng cấp) ---
+        function switchScreen(screenId) {
+            // Ẩn tất cả màn hình
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            // Hiện màn hình được yêu cầu
+            document.getElementById(screenId).classList.add('active');
+
+            // Logic quản lý Bảng tỉ số: Chỉ hiện khi đang ở màn hình Bàn cờ
+            if (screenId === 'screen-game') {
+                document.getElementById('scoreboard').style.display = 'block';
+            } else {
+                document.getElementById('scoreboard').style.display = 'none';
+            }
+        }
+        // --- HÀM KIỂM TRA KẾT THÚC VÁN CỜ ---
+        function checkGameOver() {
+            if (game.game_over()) {
+                var resultText = "HÒA NHAU!";
+                
+                if (game.in_checkmate()) {
+                    var loserColor = game.turn(); 
+                    if (loserColor === myColor) {
+                        // Mình bị chiếu bí
+                        oppScore++;
+                        resultText = "🏆 " + document.getElementById("opponent-name").innerText + " CHIẾN THẮNG! 🏆";
+                    } else {
+                        // Mình thắng
+                        myScore++;
+                        resultText = "🏆 " + myName + " CHIẾN THẮNG! 🏆";
+                    }
+                    updateScoreBoard(); // Cập nhật bảng điểm ngay lập tức
+                }
+
+                showVictory(resultText);
+            }
+        }
+
+        // --- HÀM HIỂN THỊ CHIẾN THẮNG & PHÁO HOA ---
+        function showVictory(text) {
+            document.getElementById("victory-title").innerText = text;
+            document.getElementById("screen-victory").style.display = "flex";
+
+            // Hiệu ứng pháo hoa bắn liên tục trong 3 giây
+            var duration = 3 * 1000;
+            var end = Date.now() + duration;
+
+            (function frame() {
+                // Bắn từ góc trái
+                confetti({ particleCount: 5, angle: 60, spread: 55, origin: { x: 0 }, colors: ['#ff0000', '#00ff00', '#0000ff', '#ffff00'] });
+                // Bắn từ góc phải
+                confetti({ particleCount: 5, angle: 120, spread: 55, origin: { x: 1 }, colors: ['#ff0000', '#00ff00', '#0000ff', '#ffff00'] });
+
+                if (Date.now() < end) {
+                    requestAnimationFrame(frame);
+                }
+            }());
+        }
+        function updateScoreBoard() {
+            document.getElementById("score-me").innerText = myScore;
+            document.getElementById("score-opp").innerText = oppScore;
+        }
+
+        function showSurrenderDialog() {
+            document.getElementById("surrender-dialog").style.display = "flex";
+        }
+
+        function confirmSurrender(isYes) {
+            document.getElementById("surrender-dialog").style.display = "none";
+            if (isYes) {
+                // Bắn tín hiệu đầu hàng lên Server
+                connection.invoke("Surrender", roomName, myName);
+            }
+        }
+
+        // --- KẾT NỐI SERVER ---
+        const connection = new signalR.HubConnectionBuilder()
+            .withUrl("http://localhost:5259/chessHub") // Hãy chắc chắn cổng này đúng với máy bạn
+            .build();
+
+        connection.start().then(function () {
+            document.getElementById("server-status").innerText = "Máy chủ đã sẵn sàng!";
+            document.getElementById("server-status").style.color = "#28a745";
+        }).catch(err => console.error(err));
+
+        // --- XỬ LÝ NÚT TÌM ĐỐI THỦ ---
+        function onJoinClick() {
+            myName = document.getElementById("playerName").value || "Ẩn danh";
+            myAvatar = document.getElementById("playerAvatar").value;
+            myColor = document.getElementById("playerColor").value;
+            roomName = document.getElementById("roomId").value;
+
+            if (roomName === "") {
+                alert("Vui lòng nhập mã phòng!");
+                return;
+            }
+
+            // Nạp thông tin sẵn sàng
+            document.getElementById("waiting-name").innerText = myName;
+            document.getElementById("waiting-avatar").innerText = myAvatar;
+            document.getElementById("waiting-room").innerText = roomName;
+            document.getElementById("my-name").innerText = myName;
+            document.getElementById("my-avatar").innerText = myAvatar;
+
+            board.orientation(myColor === 'w' ? 'white' : 'black');
+
+            // HỎI SERVER TRƯỚC KHI CHUYỂN MÀN HÌNH
+            connection.invoke("JoinRoom", roomName, myName, myAvatar, myColor)
+                .then(function(isSuccess) {
+                    if (isSuccess) {
+                        // Server duyệt (Là người đầu tiên HOẶC người thứ 2 khác phe) -> Cho sang màn hình chờ / game
+                        switchScreen('screen-waiting');
+                    } else {
+                        // Server TỪ CHỐI -> Giữ nguyên ở Sảnh và báo lỗi
+                        alert("Đối thủ đang chờ đã chọn phe này rồi, xin bạn đổi phe khác!");
+                    }
+                })
+                .catch(err => console.error(err));
+        }
+
+        // --- CÁC SỰ KIỆN TỪ SERVER TRẢ VỀ ---
+
+        // SỰ KIỆN 1: Khi có đối thủ vào phòng (Dành cho người tạo phòng)
+        connection.on("OpponentJoined", function (oppName, oppAvatar, oppColor) {
+            // Hiển thị thông tin đối thủ
+            document.getElementById("opponent-name").innerText = oppName;
+            document.getElementById("opponent-avatar").innerText = oppAvatar;
+            document.getElementById("opponent-profile").style.visibility = "visible";
+            
+            // Nhảy vào game!
+            switchScreen('screen-game');
+
+            // Bắn ngược hồ sơ của mình cho đối thủ biết
+            connection.invoke("SendProfile", roomName, myName, myAvatar, myColor);
+        });
+
+        // SỰ KIỆN 2: Khi nhận được hồ sơ của chủ phòng (Dành cho người vào sau)
+        connection.on("ReceiveProfile", function (oppName, oppAvatar, oppColor) {
+            // Hiển thị thông tin chủ phòng
+            document.getElementById("opponent-name").innerText = oppName;
+            document.getElementById("opponent-avatar").innerText = oppAvatar;
+            document.getElementById("opponent-profile").style.visibility = "visible";
+            
+            // Nhảy vào game!
+            switchScreen('screen-game');
+        });
+
+        // SỰ KIỆN 3: Xử lý nước đi
+        connection.on("ReceiveMove", function (moveData, fen) {
+            game.move(moveData);
+            board.position(fen);
+            window.setTimeout(checkGameOver, 250); // Kiểm tra khi đối thủ đi
+        });
+        var pendingMove = null; // Biến mới: Dùng để ghi nhớ nước đi đang chờ phong cấp
+
+        function onDragStart (source, piece, position, orientation) {
+            if (game.game_over()) return false;
+
+            // CHỐT CHẶN MỚI: Chỉ cho phép nhấc quân cờ CỦA PHE MÌNH
+            // piece.charAt(0) sẽ trả về 'w' (Trắng) hoặc 'b' (Đen)
+            if (piece.charAt(0) !== myColor) return false;
+
+            // Chốt chặn cũ: Chỉ cho phép đi đúng lượt
+            if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
+                (game.turn() === 'b' && piece.search(/^w/) !== -1)) {
+                return false;
+            }
+        }
+        // SỰ KIỆN MỚI: Bị Server từ chối do chọn trùng màu
+        connection.on("JoinError", function (errorMessage) {
+            // Hiện cảnh báo
+            alert(errorMessage);
+            
+            // Đá người chơi văng ngược lại màn hình Sảnh chờ (Lobby)
+            switchScreen('screen-lobby');
+            
+            // Xóa thông báo trạng thái cũ
+            document.getElementById("server-status").innerText = "Hãy đổi phe và thử lại!";
+            document.getElementById("server-status").style.color = "red";
+        });
+        // Xử lý khi có người Đầu hàng
+        connection.on("PlayerSurrendered", function (loserName) {
+            if (loserName === myName) {
+                oppScore++; // Đối thủ được điểm
+                showVictory("🏳️ BẠN ĐÃ ĐẦU HÀNG!");
+            } else {
+                myScore++; // Mình được điểm
+                showVictory("🏆 ĐỐI THỦ ĐẦU HÀNG! BẠN THẮNG! 🏆");
+            }
+            updateScoreBoard();
+        });
+
+        // Gửi yêu cầu ván mới khi bấm nút
+        function requestRematch() {
+            connection.invoke("RequestRematch", roomName);
+        }
+
+        // Lệnh dọn dẹp bàn cờ từ Server
+        connection.on("ResetGame", function () {
+            // Đóng bảng chiến thắng
+            document.getElementById("screen-victory").style.display = "none";
+            // Xếp lại quân cờ trong não bộ và đồ họa
+            game.reset();
+            board.start();
+        });
+
+        function onDrop (source, target) {
+            // Lấy thông tin quân cờ đang được cầm
+            var piece = game.get(source);
+            
+            // KIỂM TRA PHONG CẤP: Nếu là Tốt (p) và đi đến hàng 8 (Trắng) hoặc hàng 1 (Đen)
+            var isPromotion = false;
+            if (piece !== null && piece.type === 'p') {
+                if ((piece.color === 'w' && target.charAt(1) === '8') || 
+                    (piece.color === 'b' && target.charAt(1) === '1')) {
+                    isPromotion = true;
+                }
+            }
+
+            if (isPromotion) {
+                // 1. Lưu lại thông tin nước đi
+                pendingMove = { from: source, to: target };
+                
+                // 2. Lấy màu của quân Tốt đang đi ('w' hoặc 'b')
+                var color = piece.color; 
+                
+                // 3. Cập nhật đường link hình ảnh cho khớp với màu Trắng/Đen
+                document.getElementById('promo-q').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${color}Q.png`;
+                document.getElementById('promo-n').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${color}N.png`;
+                document.getElementById('promo-r').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${color}R.png`;
+                document.getElementById('promo-b').src = `https://chessboardjs.com/img/chesspieces/wikipedia/${color}B.png`;
+
+                // 4. Hiện hộp thoại lên (dùng flex thay vì block để giữ đúng cấu trúc dọc)
+                document.getElementById('promotion-dialog').style.display = 'flex';
+                
+                return 'snapback';
+            }
+            // Nước đi bình thường (không phong cấp)
+            var move = game.move({
+                from: source,
+                to: target
+            });
+
+            if (move === null) return 'snapback';
+            // Bắn nước đi lên mạng
+            if (roomName !== "") {
+                connection.invoke("SendMove", roomName, { from: source, to: target }, game.fen());
+            }
+            // Đặt ở cuối hàm onDrop
+            window.setTimeout(checkGameOver, 250);
+        }
+
+        // Hàm mới: Chạy khi người chơi bấm nút chọn quân trong hộp thoại
+        function choosePromotion(promotedPiece) {
+            game.move({
+                from: pendingMove.from,
+                to: pendingMove.to,
+                promotion: promotedPiece
+            });
+            board.position(game.fen());
+            // Bắn nước đi phong cấp lên mạng
+            if (roomName !== "") {
+                connection.invoke("SendMove", roomName, { 
+                    from: pendingMove.from, 
+                    to: pendingMove.to, 
+                    promotion: promotedPiece 
+                }, game.fen());
+            }
+            
+            // Ẩn hộp thoại đi
+            document.getElementById('promotion-dialog').style.display = 'none';
+            pendingMove = null;
+            window.setTimeout(checkGameOver, 250);
+        }
+
+        function onSnapEnd () {
+            board.position(game.fen());
+        }
+
+        var config = {
+            draggable: true,
+            position: 'start',
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',
+            onDragStart: onDragStart,
+            onDrop: onDrop,
+            onSnapEnd: onSnapEnd
+        };
+
+        var board = Chessboard('board', config);
+    </script>
+    <div id="screen-victory" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); z-index: 2000; flex-direction: column; justify-content: center; align-items: center;">
+        <h1 id="victory-title" style="color: #ffd700; font-size: 50px; text-shadow: 0 0 20px #ff8c00; margin-bottom: 10px; text-align: center;">🎉 CHIẾN THẮNG! 🎉</h1>
+        <button onclick="requestRematch()" style="margin-top: 30px; padding: 15px 30px; font-size: 20px; font-weight: bold; cursor: pointer; background: #28a745; color: white; border: none; border-radius: 8px;">Chơi ván mới</button>
+    </div>
+    <div id="surrender-dialog" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 3000; flex-direction: column; justify-content: center; align-items: center;">
+        <div style="background: white; padding: 30px; border-radius: 10px; text-align: center;">
+            <h2 style="margin-top: 0; color: #333;">Bạn muốn đầu hàng?</h2>
+            <div style="display: flex; gap: 20px; justify-content: center; margin-top: 20px;">
+                <button onclick="confirmSurrender(true)" style="background: #28a745; color: white; border: none; padding: 10px 30px; font-size: 24px; border-radius: 5px; cursor: pointer;">✅</button>
+                <button onclick="confirmSurrender(false)" style="background: #dc3545; color: white; border: none; padding: 10px 30px; font-size: 24px; border-radius: 5px; cursor: pointer;">❌</button>
+            </div>
+        </div>
+    </div>
+    
+</body>
+</html>
