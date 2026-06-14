@@ -261,7 +261,7 @@
 
         // --- KẾT NỐI SERVER ---
         const connection = new signalR.HubConnectionBuilder()
-            .withUrl("http://localhost:5259/chessHub") // Hãy chắc chắn cổng này đúng với máy bạn
+            .withUrl("https://chess-chien.onrender.com/chessHub") // Hãy chắc chắn cổng này đúng với máy bạn
             .build();
 
         connection.start().then(function () {
